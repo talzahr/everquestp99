@@ -8,6 +8,8 @@ Requires AWK/gAWK
 Does some basic things so far. I mostly work on this during gaming downtime in EQ.
 Don't expect it to be better than other EQ parsers out there. It's made for my purposes really. 
 
+![EQParsev1 0](https://user-images.githubusercontent.com/54084333/140630900-3f91b72e-db70-48cb-92da-e9f904adac2e.png)
+
 Features:
 - Tracks user-defined spell effects by showing expiration timer. 
 - Timer color turns yellow when expiring in <=15 seconds.
