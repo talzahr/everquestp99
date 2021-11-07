@@ -1,4 +1,4 @@
-# everquestp99
+# EQParse
 Just some shell scripts and various things to run alongside EQ Project1999
 
 Modify the variables in the script as shown with examples already in place.
