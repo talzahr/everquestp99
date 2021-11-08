@@ -24,3 +24,4 @@ TO DO:
 - Detect deaths and remove said effects
 - Accept keystrokes to reset counters, etc.
 - Config file that can be modified while script is running
+- Order active effects by timer ascending.
