@@ -12,30 +12,15 @@
 
 # Location of the log file to parse
 log=/home/talzahr/nvme-home/prefixes/wine32/drive_c/everquest/Logs/eqlog_Sathyn_P1999Green.txt
-conf=/home/talzahr/scripts/eq/eqparse.conf
-
-#     Buff tracking:
-# Bear in mind that duration often increases by level.
-# EQ works in 6s ticks, so duration can be off by as much as ~6s.
-# The arrays bufffailtrigger and bufffailaudio are monitored
-# by the bufffail() function every 0.3s by default.
-# This should be for critically important drops (or warning of drop)
-# in effects such as invis, fear, mez, etc. Another benefit
-# of the fail arrays are that drop messages are zone-wide.
-# I like to set duration a couple of seconds early so that the
-# EXPIRED msg will appear for a moment on display().
+conf=eqparse.conf
+ver="1.1"
 
 
-# activeeffects array has three values:
-# 0=inacitve, 1=active, 2=active but not passed through timekeeping() yet.
-for i in "${!buffname[@]}"; do
-	activeeffects["$i"]="0"
-done
 
 error () {
 
    if [[ "$1" -eq 1 ]]; then
-      echo "No buffnames in $conf, are you sure it's the correct file?" && exit 1
+      echo "No \$buffnames in $conf, are you sure it's the correct file?" && exit 1
    elif [[ "$1" -eq 2 ]]; then
       echo "$conf not writeable or does not exist." && exit 2
    elif [[ "$1" -eq 3 ]]; then
@@ -70,12 +55,6 @@ configparse () {
 
    specialloot=($(awk -F '=' '/specialloot/{printf "%s\n", $2}' "$conf"))
    speciaauctionitem=($(awk -F '=' '/auctionitem/{printf "%s\n", $2}' "$conf"))
-
-   #temp debug log
-   for i in "${!buffname[@]}"; do
-      printf '%s    %d    %s    %s    %s    %s\n' "${buffname[$i]}" "${buffduration[$i]}" "${buffstarttrigger[$i]}" \
-         "${buffendtrigger[$i]}" "${bufffailtrigger[$i]}" "${bufffailaudio[$i]}" >> debug.log
-   done
 
    return 0
 
@@ -222,7 +201,7 @@ coincount () {
 	# silver
    for i in "${sct[@]}"; do
 		(( ssum += i ))
-	done
+   done
 	if [[ $ssum -ge 10 ]]; then
 		gsum=$(( ssum / 10 ))
 		ssum=$(( ssum % 10 ))
@@ -231,7 +210,7 @@ coincount () {
 	# gold
    for i in "${gct[@]}"; do
 		(( gsum += i ))
-	done
+   done
 	if [[ $gsum -ge 10 ]]; then
 		psum=$(( gsum / 10 ))
 		gsum=$(( gsum % 10 ))
@@ -240,7 +219,7 @@ coincount () {
 	# platinum
    for i in "${pct[@]}"; do
 		(( psum += i ))
-	done
+   done
 
 }
 
@@ -294,7 +273,7 @@ display () {
 
 	clear
 
-	echo "-------- EverQuest Stats --------"
+	echo "-------- EQparse $ver Stats --------"
 	echo "Uptime: $uptime"
 	echo "Looted coin: $psum plat, $gsum gold, $ssum silver, $csum copper"
 
@@ -330,19 +309,49 @@ display () {
 
 }
 
+userexit () {
 
+# Main loop has terminated by signal
+# This is very temporary code, dumping vars to a file for a possible preserved state feature later. 
 
-# Is the dot/dd on?
-# Has the dot ended, mob died, or player died?
-# If the mob dies before dot ended then dmg is partial
+   touch /tmp/eqparse.state
+   if [[ "$?" -gt 0 ]]; then
+      exit 0 # let's leave silently, this doesn't yet matter much
+   fi
 
-# reset log on each script invocation
+   printf "\nPreserving state to /tmp/eqparse.state"
+   printf 'LOOTCOINSTATE=%d,%d,%d,%d\n' "$psum" "$gsum" "$ssum" "$csum" > /tmp/eqparse.state
+
+   ct=0
+   for str in "${specialloot[@]}"; do
+
+   printf 'SPECIALLOOTSTATE=%s,%d\n' "$str" "${lootct[$ct]}" >> /tmp/eqparse.state
+   ((ct++))
+
+   done
+   exit 0
+
+}
+
+##################################
+#### Setting up the main loop ####
+##################################
+
+# activeeffects array has three values:
+# 0=inacitve, 1=active, 2=active but not passed through timekeeping() yet.
+for i in "${!buffname[@]}"; do
+	activeeffects["$i"]="0"
+done
+
+# Reset our EQ log file
 echo "--Log reset by EQParse at $(date)--" > $log
 
+# If we cannot access the EQ log file
 if [[ ! -w "$log" ]]; then
    error 3
 fi
 
+# To populate the arrays from .conf
 configparse
 
 for i in "${!buffname[@]}"; do
@@ -371,9 +380,9 @@ ct=0
 starttime=$(date +%s) # for our uptime
 csum=0 ssum=0 gsum=0 psum=0 # zero out for display function
 
-# Main loop
-while true; do
+### Main loop ###
 
+while true; do
 
 	# Things that must run without delay, such as detecting a dropping invis/IVU
 	bufffail
@@ -397,6 +406,9 @@ while true; do
    [[ $(( "$ct" % 100 )) -eq 0 ]] \
       && configparse # Apply any config changes
 
+   trap 'userexit' 0
+
 	sleep 0.3
 	((ct++))
 done
+
