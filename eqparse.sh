@@ -11,8 +11,8 @@
 #      ---- USER CONFIG ----
 
 # Location of the log file to parse
-log=/cygdrive/f/everquest/Logs/eqlog_Sathyn_P1999Green.txt
-
+log=/home/talzahr/nvme-home/prefixes/wine32/drive_c/everquest/Logs/eqlog_Sathyn_P1999Green.txt
+conf=/home/talzahr/scripts/eq/eqparse.conf
 
 #     Buff tracking:
 # Bear in mind that duration often increases by level.
@@ -25,68 +25,61 @@ log=/cygdrive/f/everquest/Logs/eqlog_Sathyn_P1999Green.txt
 # I like to set duration a couple of seconds early so that the
 # EXPIRED msg will appear for a moment on display().
 
-buffname+=("Dark Pact")
-buffduration+=(154)
-buffstarttrigger+=("You feel your health begin to drain")
-buffendtrigger+=("You feel better")
-bufffailtrigger+=("")
-bufffailaudio+=("")
-
-buffname+=("Shielding")
-buffduration+=(2158)
-buffstarttrigger+=("You feel armored")
-buffendtrigger+=("Your shielding fades")
-bufffailtrigger+=("")
-bufffailaudio+=("")
-
-buffname+=("Gather Shadows")
-buffduration+=(1198)
-buffstarttrigger+=("You gather shadows about you")
-buffendtrigger+=("Your shadows fade")
-bufffailtrigger+=("You feel yourself starting to appear")
-bufffailaudio+=("beep-03.wav")
-
-buffname+=("Invisibility versus Undead")
-buffduration+=(1618)
-buffstarttrigger+=("You feel your skin tingle")
-buffendtrigger+=("Your skin stops tingling")
-bufffailtrigger+=("You feel yourself starting to appear")
-bufffailaudio+=("beep-03.wav")
-
-buffname+=("Banshee Aura")
-buffduration+=(250)
-buffstarttrigger+=("A shrieking aura surrounds you")
-buffendtrigger+=("The shrieking aura fades")
-bufffailtrigger+=("")
-bufffailaudio+=("")
-
-buffname+=("Shieldskin")
-buffduration+=(2158)
-buffstarttrigger+=("A mystic force shields your skin")
-buffendtrigger+=("Your skin returns to normal")
-bufffailtrigger+=("")
-bufffailaudio+=("")
-
-buffname+=("Spirit Armor")
-buffduration+=(2158)
-buffstarttrigger+=("Translucent armor gathers around you")
-buffendtrigger+=("Your spiritual armor fades")
-bufffailtrigger+=("")
-bufffailaudio+=("")
-
-# Loot we want to track with a counter
-specialloot+=("Bone Chips")
-specialloot+=("Spider Silk")
-specialloot+=("Spiderling Silk")
-
-
-#      ---- END USER CONFIG ----
 
 # activeeffects array has three values:
 # 0=inacitve, 1=active, 2=active but not passed through timekeeping() yet.
 for i in "${!buffname[@]}"; do
 	activeeffects["$i"]="0"
 done
+
+error () {
+
+   if [[ "$1" -eq 1 ]]; then
+      echo "No buffnames in $conf, are you sure it's the correct file?" && exit 1
+   elif [[ "$1" -eq 2 ]]; then
+      echo "$conf not writeable or does not exist." && exit 2
+   elif [[ "$1" -eq 3 ]]; then
+      echo "$log not writeable or does not exist." && exit 3
+   else
+      echo "Undefined error" && exit 255
+   fi
+         
+}
+
+configparse () {
+
+   if [[ ! -w $conf ]]; then
+      error 2
+   fi
+
+   local buffnamect=$(awk '/buffname/{print $0}' $conf | wc -l)
+
+   if [[ "$buffnamect" -lt 1 ]]; then
+      error 1
+   fi
+
+   IFS=$'\n\t' # IFS to separate newlines and not spaces
+
+   # Populate the arrays
+   buffname=($(awk -F '=' '/buffname/{printf "%s\n", $2}' "$conf"))
+   buffduration=($(awk -F '=' '/buffduration/{printf "%d\n", $2}' "$conf"))
+   buffstarttrigger=($(awk -F '=' '/buffstarttrigger/{printf "%s\n", $2}' "$conf"))
+   buffendtrigger=($(awk -F '=' '/buffendtrigger/{printf "%s\n", $2}' "$conf"))
+   bufffailtrigger=($(awk -F '=' '/bufffailtrigger/{if ($2==""){print "null"} else {printf "%s\n", $2}}' "$conf"))
+   bufffailaudio=($(awk -F '=' '/bufffailaudio/{if ($2==""){print "null"} else {printf "%s\n", $2}}' "$conf"))
+
+   specialloot=($(awk -F '=' '/specialloot/{printf "%s\n", $2}' "$conf"))
+   speciaauctionitem=($(awk -F '=' '/auctionitem/{printf "%s\n", $2}' "$conf"))
+
+   #temp debug log
+   for i in "${!buffname[@]}"; do
+      printf '%s    %d    %s    %s    %s    %s\n' "${buffname[$i]}" "${buffduration[$i]}" "${buffstarttrigger[$i]}" \
+         "${buffendtrigger[$i]}" "${bufffailtrigger[$i]}" "${bufffailaudio[$i]}" >> debug.log
+   done
+
+   return 0
+
+}
 
 buffup () {
 
@@ -120,6 +113,7 @@ buffdown () {
 	while [[ "$i" -lt "${#buffname[@]}" ]]; do
 
 		buffendread[$i]=$(awk "/\] ${buffendtrigger[$i]}/ {count++} END{print count}" $log)
+      [[ -z "${buffendread[$i]}" ]] && buffendread["$i"]=0
 		((i++))
 
 	done
@@ -179,11 +173,11 @@ timekeeping () {
 bufffail () {
 	for i in "${!activeeffects[@]}"; do
 
-		if [[ ! -z "${bufffailtrigger[$i]}" ]] \
-		   && [[ "${activeeffects[$i]}" -eq 1 ]]; then
+		if [ ! "${bufffailtrigger[$i]}" = "null" ] && [[ ${activeeffects[$i]} -eq 1 ]]; then
 
 			bufffailread[$i]=$(\
 				awk "/\] ${bufffailtrigger[$i]}/ {count++} END{print count}" $log)
+         [[ -z "${bufffailread[$i]}" ]] && bufffailread["$i"]=0
 
 			if [[ "${bufffailread[$i]}" -eq "${bufffailendct[$i]}" ]]; then
 
@@ -201,30 +195,32 @@ bufffail () {
 }
 
 
-# Coin counter, for now autosplit must be enabled
-# as not to pick up vendor sells and simplify code
+# Coin counter 
+
 coincount () {
+
+   # looting coin
 	local cct=($(\
-		awk '/\] You receive.*your split/ {for (I=1;I<NF;I++) if ($I == "copper") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "copper") print $(I-1)}' $log))
 	local sct=($(\
-		awk '/\] You receive.*your split/ {for (I=1;I<NF;I++) if ($I == "silver") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "silver") print $(I-1)}' $log))
 	local gct=($(\
-		awk '/\] You receive.*your split/ {for (I=1;I<NF;I++) if ($I == "gold") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "gold") print $(I-1)}' $log))
 	local pct=($(\
-		awk '/\] You receive.*your split/ {for (I=1;I<NF;I++) if ($I == "platinum") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "platinum") print $(I-1)}' $log))
 
 	csum=0 ssum=0 gsum=0 psum=0
 	# copper
-	for i in ${cct[@]}; do
+   for i in "${cct[@]}"; do
 		(( csum += i ))
 	done
 	if [[ $csum -ge 10 ]]; then
-		ssum=$(( csum / 10 )) # carry the quotient integer to silver
+		ssum=$(( csum / 10 )) # carry the quotient to silver
 		csum=$(( csum % 10 )) # leave only the remainder in copper
 	fi
 
 	# silver
-	for i in ${sct[@]}; do
+   for i in "${sct[@]}"; do
 		(( ssum += i ))
 	done
 	if [[ $ssum -ge 10 ]]; then
@@ -233,7 +229,7 @@ coincount () {
 	fi
 
 	# gold
-	for i in ${gct[@]}; do
+   for i in "${gct[@]}"; do
 		(( gsum += i ))
 	done
 	if [[ $gsum -ge 10 ]]; then
@@ -242,7 +238,7 @@ coincount () {
 	fi
 
 	# platinum
-	for i in ${pct[@]}; do
+   for i in "${pct[@]}"; do
 		(( psum += i ))
 	done
 
@@ -272,6 +268,10 @@ specialloot () {
 		((c++))
 
 	done
+}
+
+auctionparse () {
+	return
 }
 
 
@@ -327,6 +327,7 @@ display () {
 		fi
 
 	done
+
 }
 
 
@@ -338,6 +339,16 @@ display () {
 # reset log on each script invocation
 echo "--Log reset by EQParse at $(date)--" > $log
 
+if [[ ! -w "$log" ]]; then
+   error 3
+fi
+
+configparse
+
+for i in "${!buffname[@]}"; do
+	activeeffects["$i"]="0"
+done
+
 # Zero out each buff array so we don't have nulls to play with
 buffct=()
 i=0
@@ -347,6 +358,7 @@ while [[ $i -lt ${#buffname[@]} ]]; do
 	buffct+=(1)
 	buffendct+=(1)
 	bufffailendct+=(1)
+   bufffailread+=(0)
 	buffread+=(0)
 	buffendread+=(0)
 
@@ -361,6 +373,7 @@ csum=0 ssum=0 gsum=0 psum=0 # zero out for display function
 
 # Main loop
 while true; do
+
 
 	# Things that must run without delay, such as detecting a dropping invis/IVU
 	bufffail
@@ -380,7 +393,9 @@ while true; do
 		&& timekeeping \
 		&& display
 
-
+   # 30 seconds
+   [[ $(( "$ct" % 100 )) -eq 0 ]] \
+      && configparse # Apply any config changes
 
 	sleep 0.3
 	((ct++))
