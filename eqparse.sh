@@ -11,8 +11,14 @@
 #      ---- USER CONFIG ----
 
 # Location of the log file to parse
-log=/home/talzahr/nvme-home/prefixes/wine32/drive_c/everquest/Logs/eqlog_Sathyn_P1999Green.txt
-conf=eqparse.conf
+# This is temporary. Will have script determine latest log file being written by EQ client
+# and use that with a character/server-specific config file. 
+log="/home/talzahr/nvme-home/prefixes/wine32/drive_c/everquest/Logs/eqlog_Sathyn_P1999Green.txt"
+note="/home/talzahr/nvme-home/prefixes/wine32/drive_c/everquest/notes.txt"
+conf="eqparse.conf"
+
+
+script="EQparse"
 ver="1.1"
 
 
@@ -20,11 +26,13 @@ ver="1.1"
 error () {
 
    if [[ "$1" -eq 1 ]]; then
-      echo "No \$buffnames in $conf, are you sure it's the correct file?" && exit 1
+      echo "$script: No \$buffnames in $conf, are you sure it's the correct file?" && exit 1
    elif [[ "$1" -eq 2 ]]; then
-      echo "$conf not writeable or does not exist." && exit 2
+      echo "$script: $conf not writeable or does not exist." && exit 2
    elif [[ "$1" -eq 3 ]]; then
-      echo "$log not writeable or does not exist." && exit 3
+      echo "$script: $log not writeable or does not exist." && exit 3
+   elif [[ "$1" -eq 4 ]]; then
+      echo "$script: $note not writeable." && exit 4
    else
       echo "Undefined error" && exit 255
    fi
@@ -178,15 +186,15 @@ bufffail () {
 
 coincount () {
 
-   # looting coin
+   # looting coin. '~' operator in awk because sometimes 'platinum' is 'platinum,' etc
 	local cct=($(\
-      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "copper") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "copper") print $(I-1)}' "$log"))
 	local sct=($(\
-      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "silver") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "silver") print $(I-1)}' "$log"))
 	local gct=($(\
-      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "gold") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "gold") print $(I-1)}' "$log"))
 	local pct=($(\
-      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "platinum") print $(I-1)}' $log))
+      awk '/\] You receive.*(from the corpse|your split)/ {for (I=1;I<NF;I++) if ($I ~ "platinum") print $(I-1)}' "$log"))
 
 	csum=0 ssum=0 gsum=0 psum=0
 	# copper
@@ -254,6 +262,69 @@ auctionparse () {
 }
 
 
+#### notes.txt input parsing functions
+
+inputinit () {
+
+   # If nothing in the notes file then we do nothing
+   if [[ ! -s "$note" ]]; then
+      return 0
+   fi
+
+   # Clear the msg after 20 loops
+   if [[ $(( "$inputinitloop" % 20 )) -eq 0 ]]; then
+      inputreply=""
+   fi
+   
+   # Populate input arr with all fields from the first record if the first field is 'eqparse'
+   #inputstring=($(awk '{OFS = "\n"} NR==1 {for (I=1;I<=NF;I++) if ($1 == "eqparse") {print $(I)} else {print "null"}}' "$note"))
+   inputstring=($(awk '
+      {
+
+         OFS = "\n"
+         NR==1
+
+         for (I=1;I<=NF;I++)
+            if ($1 == "eqparse")
+               print $(I)
+            else
+               print "null"
+         exit
+
+      }' "$note"))
+
+   # Return to main loop when array is null or second parm is empty
+   if [ "$inputstring[0]" = "null" ] || [[ "${#inputstring[1]}" -eq 0 ]]; then
+      return 0
+   fi   
+
+   for ((i=0;i<1;i++)); do
+
+      # reset our reply accumulator and clear the notes.txt
+      echo "" > "$note"
+      inputinitloop=0
+
+      case "${inputstring[1]}" in
+         rlc)
+            sed -i '/\] You receive.*(from the corpse|your split)/d' "$log"
+            csum=0 ssum=0 gsum=0 psum=0
+            inputreply="Looted coin counter has been reset."
+            ;;
+         help)
+            inputreply=" help -- This dialog\n rlc  -- Reset looted coin counter"
+            ;;
+         *)
+            inputreply="Unknown command. See 'eqparse help'"
+            ;;
+      esac
+
+   done
+
+
+   ((inputinitloop++))
+}
+
+
 display () {
 
 	local uptimesecs=$(expr $(date +%s) - $starttime)
@@ -273,7 +344,7 @@ display () {
 
 	clear
 
-	echo "-------- EQparse $ver Stats --------"
+	echo "-------- $script v$ver Stats --------"
 	echo "Uptime: $uptime"
 	echo "Looted coin: $psum plat, $gsum gold, $ssum silver, $csum copper"
 
@@ -305,8 +376,15 @@ display () {
 
 		fi
 
-	done
+   done
 
+   echo "------------------------------------"
+
+   if [[ "${#inputreply}" -gt 0 ]]; then
+
+      echo -e "$inputreply"
+
+   fi
 }
 
 userexit () {
@@ -325,8 +403,8 @@ userexit () {
    ct=0
    for str in "${specialloot[@]}"; do
 
-   printf 'SPECIALLOOTSTATE=%s,%d\n' "$str" "${lootct[$ct]}" >> /tmp/eqparse.state
-   ((ct++))
+      printf 'SPECIALLOOTSTATE=%s,%d\n' "$str" "${lootct[$ct]}" >> /tmp/eqparse.state
+      ((ct++))
 
    done
    exit 0
@@ -346,6 +424,12 @@ done
 # Reset our EQ log file
 echo "--Log reset by EQParse at $(date)--" > $log
 
+# notes.txt must stay clean. May change in the future so it can be used for intended purpose.
+echo "" > "$note"
+if [[ "$?" -gt 0 ]]; then
+   error 4
+fi
+
 # If we cannot access the EQ log file
 if [[ ! -w "$log" ]]; then
    error 3
@@ -361,6 +445,8 @@ done
 # Zero out each buff array so we don't have nulls to play with
 buffct=()
 i=0
+inputinitloop=0
+inputreply=""
 
 while [[ $i -lt ${#buffname[@]} ]]; do
 
@@ -400,7 +486,8 @@ while true; do
 	# 1.2 seconds
 	[[ $(( "$ct" % 4 )) -eq 0 ]] \
 		&& timekeeping \
-		&& display
+		&& inputinit \
+      && display
 
    # 30 seconds
    [[ $(( "$ct" % 100 )) -eq 0 ]] \
