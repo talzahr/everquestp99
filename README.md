@@ -22,6 +22,7 @@ Features:
 TO DO:
 - A function to calculate zoning time and add that to all spell effect timers.
 - Detect deaths and remove said effects
-- Accept keystrokes to reset counters, etc.
-- Config file that can be modified while script is running
+- ~~Accept keystrokes to reset counters, etc.~~ **Basic functionality completed
+- ~~Config file that can be modified while script is running~~ **eqparse.conf, populated every 30 seconds
 - Order active effects by timer ascending.
+- Auction mode to extract patterns from /auc messages **This is next
